@@ -82,8 +82,9 @@ where $SS$ is the sum of the residual ($x - \bar{x}$) squared. In our example, t
 We can find the exact values from the OLS estimation:
 
 ```{r}
-m1.sum <- lm(y~X, data = datum) %>%
-  summary
+m1 <- lm(y~X, data = datum)
+
+m1.sum <- summary(m1)
 
 m1.sum$coefficients %>%
   as.data.frame() %>%
@@ -98,3 +99,21 @@ plot1 +
 ```
 
 Even though the line is a bit off, notice that the true line is within the 95% confidence interval.
+
+You might also be interested to see the residuals on the same plot:
+
+```{r, fig.width=3, fig.height=3, fig.retina=600/72}
+m1.res <- residuals(m1)
+
+datum <- datum %>%
+  mutate(res = m1.res,
+         y.ols = m1.sum$coefficients[1,1] + (m1.sum$coefficients[2,1]*X))
+
+ggplot(datum, aes(X, y)) +
+  geom_segment(aes(x = X, y = y.ols + res, xend = X, yend = y.ols), color = "red") +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = T) +
+  theme_bw()
+```
+
+As you can see, extracting the residuals from the model and adding these values to the fitted line gives the location of each observation.
