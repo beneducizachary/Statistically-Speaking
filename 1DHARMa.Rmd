@@ -11,6 +11,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(ggpubr)
 ```
 
 ## Purpose
@@ -21,9 +22,9 @@ Welcome to the first installment of the Statistically Speaking... blog? Tutorial
 
 Before I get into the main topic of the document, I think a refresher on linear models would serve the reader well. I'll go over:
 
-1. the general linear model
-2. fixed vs. random effects (as these are commonly used together in ecology)
-3. and generalized linear models
+1.  the general linear model
+2.  fixed vs. random effects (as these are commonly used together in ecology)
+3.  and generalized linear models
 
 ### The General Linear Model
 
@@ -73,13 +74,60 @@ plot1
 
 And here we have our simulated data.
 
-Notice, I've also fitted a line through them. The coefficients for this line were estimated with an approach called ordinary least squares (OLS). OLS is a common approach to estimate the true values of the coefficients for the line by finding the values that **minimize the sum of squared deviations** from that line. The sum of squared deviations (SS, also called sum of squares) is expressed as:
+Notice, I've also fitted a line through them. The coefficients for this line were estimated with an approach called Ordinary Least Squares regression (OLS). OLS is a common approach to estimate values of the coefficients that are most likely to produce the observed data, assuming that the assumptions of the LM are met (more on that later). Two steps are required to do this. The first is that the average error of the model equals zero. We call this the total sum of squares ($TSS$):
 
-Eqn. 3: $SS = \sum_{i=1}^{n} (x_i - \bar{x})^2$
+Eqn. 3a: $TSS = \sum_{i=1}^{n} (y_i - \bar{y})^2$
 
-where $SS$ is the sum of the residual ($x - \bar{x}$) squared. In our example, there are 30 residuals, each corresponding to the distance on the y-axis between the fitted line and each observation. Essentially, the model finds the values for coefficients $\beta_0$ and $\beta_1$ that result in the smallest $SS$. Notice in the equation we take the sum of the **squared** residuals. This forces all residuals below the line to be positive. Without doing this, the residuals would too often cancel each other out and result in $SS$ = 0. Kept this way, there are many possible lines that would fit through the observed data. Heck, even a $\beta_1$ of 0 would work. Squaring the residuals ensures that the line fits through the center of the data.
+where $TSS$ represents the total error that could possibly be explained by the model, $y_i$ (read y sub i) is each $y$ value indexed ($i$) from observation 1 through the total number of observations ($n$), $\bar{y}$ (read y-bar) is the average $y$ value across the whole dataset, and $y_i - \bar{y}$ represents the distance of each observation from the average of all obervations. We square each of these differences and sum them together to get $TSS$, and the model finds coefficient values that make $TSS = 0$.
 
-We can find the exact values from the OLS estimation:
+However, this isn't enough to give us our line. There are many possible combinations of $\beta_0$ and $\beta_1$ that would make $TSS = 0$. Another requirement, then, is that the sum of squares error ($SSE$) is minimized:
+
+Eqn. 3b: $SSE = \sum_{i=1}^{n} (y_i - \hat{y})^2$
+
+All we've done is swap $\bar{y}$ for $\hat{y}$, the latter the predicted y-value that the same x-value of observation $y_i$. So, if $y_1$ occurs at $x = 1.2$, $\hat{y}$ is the predicted value at $x = 1.2$. This gives us the error that is **unexplained** by the line. So, minimizing the amount of error that is not explained by the line will ensure that the line runs through the middle of our observations. Note that this is the "residual error" being talked about in the context of model assumptions.
+
+While this is technically enough to understand OLS regression, there is one more component: sum of squares regression ($SSR$), or the error **explained** by the line:
+
+Eqn. 3c: $SSR = \sum_{i=1}^{n} (\hat{y_i} - \bar{y})^2$
+
+Now, we subtract the mean y-value across the dataset ($\bar{y}$) from the predicted y-value ($\hat{y}$) at each observed x-value. Put another way, this is the distance of each predicted y-value from the average y-value. Interestingly, there is a relation between these three types of errors:
+
+Eqn. 3d: $TSS = SSE + SSR$
+
+The error unexplained by the line ($SSE$) and the error explained by the line ($SSR$) add up to the total error in the dataset ($TSS$).
+
+Let's visualize this for a single data point to really drive it home:
+
+```{r, fig.width=3, fig.height=3, fig.retina=600/72}
+# Caluclate the average y:
+mean.y <- summarise(datum, mean = mean(y))
+
+# Filter the dataset down to a focal observation:
+datum2 <- datum %>%
+  mutate(row = row_number()) %>%
+  filter(row == 2)
+
+m1 <- lm(y~X, datum)
+
+pt <- 7.883051
+pt.pred <- 5.9009 + (1.4059*7.883051)
+
+ggplot(datum, aes(X, y)) +
+  geom_hline(yintercept = mean.y[1,1]) +
+  geom_segment(x = pt, xend = pt, y = datum2[1,3], yend = pt.pred, color = "red") +
+  geom_segment(x = pt, xend = pt, y = mean.y[1,1], yend = pt.pred, color = "green") +
+  geom_point(datum2, mapping = aes(X,y), inherit.aes = F) +
+  geom_smooth(method = "lm", se = F) +
+  theme_bw()
+```
+
+The black horizontal line is the average y-value ($\bar{y}$). In red is the $SSE$ and green the $SSR$.
+
+The portion of the $SSE$ equation $y_i - \hat{y}$ is typically referred to as the **residual error**, and each value for observation $i$ is called a **residual**. I'll refer to them as this from now on. Note that as I've calculated them here, they are **raw residuals** that have not undergone some kind of transformation, which you will see later.
+
+Naturally, you might be curious how well the OLS estimated our true line. The true coefficients were set at $\beta_0 = 4.32$ and $\beta_1 = 1.67$.
+
+Let's see how the OLS stacked up:
 
 ```{r}
 m1 <- lm(y~X, data = datum)
@@ -91,14 +139,38 @@ m1.sum$coefficients %>%
   knitr::kable()
 ```
 
-These estimates aren't that far off. The intercept is a little to be desired, but the slope is about the same as what we set the true value at. Comparing the two lines:
+These estimates aren't that far off given that I added a fair bit of noise around each observation. I did this by simulating some error around each observation from a normal distribution with a mean of $\mu = 0$ and variance of $\sigma = 2.84$. That variance is fairly high given the size of the coefficients I set.
 
 ```{r, fig.width=3, fig.height=3, fig.retina=600/72}
 plot1 +
   geom_abline(intercept = 4.32, slope = 1.67, linewidth = 1)
 ```
 
-Even though the line is a bit off, notice that the true line is within the 95% confidence interval.
+The band around the line denotes the 95% confidence interval. This is a region where the model expects, given the variation in the data, that the true line falls. We expect that 95% of all confidence intervals generated will contain truth. Put another way, if we generated 100 confidence intervals, we would expect that about 95% of them would contain the true values of the coefficients. Our truth (black line) is within or 95% C.I., so the OLS is doing a pretty good job.
+
+However, there are times when the OLS will not do a good job. The linear model performs well **given that the data meet a set of assumptions** specific to the general linear model. Briefly, those are:
+
+1.  The dependent variable ($y$) is continuous
+2.  The residual error is normally distributed
+3.  There is a linear relationship between $x$ and $y$
+4.  The variance is homoskedastic
+5.  Samples/observations are independent; there is no autocorrelation
+
+Violation of any one of these can 1) **bias the estimated parameters** (i.e. $\beta$s) away from the true value and 2) **decrease the precision** around the estimate (think variance, standard error, confidence intervals, and p-values). As such, it's incredibly important to check whether these assumptions have been violated.
+
+And the best way to do that is by checking the residuals!
+
+Luckily, this is fairly straightforward for LMs - facilitated through various plots.
+
+### Checking Assumptions of the Linear Model
+
+#### Continuous $y$ 
+
+Our first assumption that the dependent variable is continuous is the easiest to check. Here, we're making sure that the dependent, or response variable, is a number that could contain decimals. Think height measurements that could be 1.54, 2.76, 8.94, etc... These can be both positive and negative numbers. Violations of this would be data that are discrete counts (1, 2, 3, etc...), proportions that can only range between 0 and 1 (i.e. 0.3, 0.5, 0.8, etc...), and binary response variables (yes vs. no, 1 vs. 0).
+
+#### Normally distributed residual error
+
+Here we come to our first assumption that is best to check with some kind of residual plot.
 
 You might also be interested to see the residuals on the same plot:
 
@@ -110,8 +182,8 @@ datum <- datum %>%
          y.ols = m1.sum$coefficients[1,1] + (m1.sum$coefficients[2,1]*X))
 
 ggplot(datum, aes(X, y)) +
+  geom_point() +
   geom_segment(aes(x = X, y = y.ols + res, xend = X, yend = y.ols), color = "red") +
-  geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = T) +
   theme_bw()
 ```
